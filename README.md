@@ -1,6 +1,6 @@
-# karocharge_backend
+# Karocharge backend — test APIs, CitrineOS mapping, and VCP behavior
 
-Spring Boot service for Karocharge (REST API, CitrineOS integration, test routes). This document describes how to exercise **block**, **unblock**, **start**, and **stop** from the Karocharge backend, which **CitrineOS HTTP** endpoints the backend calls, and how the **OCPP Virtual Charge Point (VCP)** reacts over the WebSocket.
+This document describes how to exercise **block**, **unblock**, **start**, and **stop** from the Karocharge backend, which **CitrineOS HTTP** endpoints the backend calls, and how the **OCPP Virtual Charge Point (VCP)** reacts over the WebSocket.
 
 ---
 
