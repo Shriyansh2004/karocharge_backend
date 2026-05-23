@@ -8,6 +8,7 @@ import lombok.Value;
 public class OperatorChargerDTO {
     Long id;
     String citrineChargerId;
+    String source;
     String hostName;
     String location;
     String brand;
@@ -16,4 +17,7 @@ public class OperatorChargerDTO {
     String activeBookingStatus;
     String ocppTransactionId;
     boolean citrineBlocked;
+    Boolean citrineOnline;
+    String protocol;
+    String connectorStatus;
 }

@@ -14,6 +14,8 @@ public class CitrineConfig {
 
     private String baseUrl = "http://localhost:8080";
     private String websocketUrl = "ws://localhost:8081";
+    private String hasuraUrl = "http://localhost:8090/v1/graphql";
+    private String hasuraAdminSecret = "CitrineOS!";
     private Integer tenantId = 1;
     private Integer defaultEvseId = 1;
     private Integer timeoutSeconds = 15;

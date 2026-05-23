@@ -9,6 +9,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -104,6 +105,11 @@ public class CitrineClient {
         String baseUrl = config.getBaseUrl().replaceAll("/$", "");
         try {
             restTemplate.getForEntity(baseUrl, String.class);
+            return true;
+        } catch (HttpStatusCodeException ex) {
+            // Citrine returns 404 on GET / when running — still means the API is up.
+            log.info("event=CITRINE_HEALTH_CHECK_HTTP status={} message=Citrine HTTP API is reachable",
+                    ex.getStatusCode().value());
             return true;
         } catch (Exception ex) {
             log.warn("event=CITRINE_HEALTH_CHECK_FAILED message={}", ex.getMessage());

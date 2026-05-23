@@ -28,27 +28,27 @@ public class OperatorController {
         return ResponseEntity.ok(operatorService.listChargers());
     }
 
-    @PostMapping("/chargers/{chargerId}/block")
-    public ResponseEntity<OperatorActionResultDTO> block(@PathVariable Long chargerId) {
-        OperatorActionResultDTO result = operatorService.blockCharger(chargerId);
+    @PostMapping("/chargers/{citrineChargerId}/block")
+    public ResponseEntity<OperatorActionResultDTO> block(@PathVariable String citrineChargerId) {
+        OperatorActionResultDTO result = operatorService.blockCharger(citrineChargerId);
         return result.isSuccess() ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    @PostMapping("/chargers/{chargerId}/unblock")
-    public ResponseEntity<OperatorActionResultDTO> unblock(@PathVariable Long chargerId) {
-        OperatorActionResultDTO result = operatorService.unblockCharger(chargerId);
+    @PostMapping("/chargers/{citrineChargerId}/unblock")
+    public ResponseEntity<OperatorActionResultDTO> unblock(@PathVariable String citrineChargerId) {
+        OperatorActionResultDTO result = operatorService.unblockCharger(citrineChargerId);
         return result.isSuccess() ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    @PostMapping("/chargers/{chargerId}/start")
-    public ResponseEntity<OperatorActionResultDTO> start(@PathVariable Long chargerId) {
-        OperatorActionResultDTO result = operatorService.startCharging(chargerId);
+    @PostMapping("/chargers/{citrineChargerId}/start")
+    public ResponseEntity<OperatorActionResultDTO> start(@PathVariable String citrineChargerId) {
+        OperatorActionResultDTO result = operatorService.startCharging(citrineChargerId);
         return result.isSuccess() ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 
-    @PostMapping("/chargers/{chargerId}/stop")
-    public ResponseEntity<OperatorActionResultDTO> stop(@PathVariable Long chargerId) {
-        OperatorActionResultDTO result = operatorService.stopCharging(chargerId);
+    @PostMapping("/chargers/{citrineChargerId}/stop")
+    public ResponseEntity<OperatorActionResultDTO> stop(@PathVariable String citrineChargerId) {
+        OperatorActionResultDTO result = operatorService.stopCharging(citrineChargerId);
         return result.isSuccess() ? ResponseEntity.ok(result) : ResponseEntity.badRequest().body(result);
     }
 }
