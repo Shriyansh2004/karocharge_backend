@@ -1,5 +1,6 @@
 package com.karocharge.backend.service;
 
+import com.karocharge.backend.config.OperatorProperties;
 import com.karocharge.backend.dto.operator.OperatorActionResultDTO;
 import com.karocharge.backend.dto.operator.OperatorChargerDTO;
 import com.karocharge.backend.dto.operator.OperatorConnectionStatusDTO;
@@ -38,6 +39,7 @@ public class OperatorService {
     private final CitrineClient citrineClient;
     private final CitrineHasuraClient citrineHasuraClient;
     private final CitrineConfig citrineConfig;
+    private final OperatorProperties operatorProperties;
 
     public OperatorConnectionStatusDTO getConnectionStatus() {
         boolean citrineHttpReachable = citrineClient.isReachable();
@@ -72,8 +74,10 @@ public class OperatorService {
             CitrineChargingStationView citrine = citrineById.get(citrineId);
             if (citrine != null) {
                 matchedCitrineIds.add(citrineId);
+                result.add(mergeDbAndCitrine(charger, citrine, citrineId));
+            } else if (operatorProperties.isIncludeUnlinkedDbChargers()) {
+                result.add(mergeDbAndCitrine(charger, null, citrineId));
             }
-            result.add(mergeDbAndCitrine(charger, citrine, citrineId));
         }
 
         for (CitrineChargingStationView citrine : citrineById.values()) {
