@@ -96,4 +96,18 @@ public class CitrineClient {
             Thread.currentThread().interrupt();
         }
     }
+
+    /**
+     * Lightweight connectivity probe used by the operator dashboard.
+     */
+    public boolean isReachable() {
+        String baseUrl = config.getBaseUrl().replaceAll("/$", "");
+        try {
+            restTemplate.getForEntity(baseUrl, String.class);
+            return true;
+        } catch (Exception ex) {
+            log.warn("event=CITRINE_HEALTH_CHECK_FAILED message={}", ex.getMessage());
+            return false;
+        }
+    }
 }
