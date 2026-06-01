@@ -3,6 +3,8 @@ package com.karocharge.backend.controller;
 import com.karocharge.backend.dto.operator.OperatorActionResultDTO;
 import com.karocharge.backend.dto.operator.OperatorChargerDTO;
 import com.karocharge.backend.dto.operator.OperatorConnectionStatusDTO;
+import com.karocharge.backend.dto.operator.OperatorStationDTO;
+import com.karocharge.backend.dto.operator.OperatorStationDetailDTO;
 import com.karocharge.backend.service.OperatorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +28,18 @@ public class OperatorController {
     @GetMapping("/chargers")
     public ResponseEntity<List<OperatorChargerDTO>> listChargers() {
         return ResponseEntity.ok(operatorService.listChargers());
+    }
+
+    @GetMapping("/stations")
+    public ResponseEntity<List<OperatorStationDTO>> listStations() {
+        return ResponseEntity.ok(operatorService.listStations());
+    }
+
+    @GetMapping("/stations/{stationId}")
+    public ResponseEntity<OperatorStationDetailDTO> getStation(@PathVariable Long stationId) {
+        return operatorService.getStation(stationId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     @PostMapping("/chargers/{citrineChargerId}/block")
