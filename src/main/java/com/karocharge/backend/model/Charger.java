@@ -42,4 +42,8 @@ public class Charger {
 
     @Column(name = "status")
     private String status = "AVAILABLE";
+
+    /** OCPP / Citrine charge point identifier (e.g. CP-1). Links KaroCharge DB row to Citrine OS. */
+    @Column(name = "ocpp_station_id")
+    private String ocppStationId;
 }
