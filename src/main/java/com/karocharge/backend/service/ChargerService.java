@@ -73,9 +73,9 @@ public class ChargerService {
             return null;
         }
 
-        // 3. Citrine Handshake
+        // 3. CSMS handshake (provider-agnostic)
         String sessionId = "booking-" + id + "-" + userId + "-" + System.currentTimeMillis();
-        if (!blockInCitrine(id, userId, sessionId, duration)) {
+        if (!blockInCsms(id, userId, sessionId, duration)) {
             return null;
         }
 
@@ -101,7 +101,7 @@ public class ChargerService {
 
         String fallbackUserId = "manual-block-user";
         String fallbackSessionId = "manual-block-" + id + "-" + System.currentTimeMillis();
-        if (blockInCitrine(id, fallbackUserId, fallbackSessionId, 30)) {
+        if (blockInCsms(id, fallbackUserId, fallbackSessionId, 30)) {
             charger.setStatus("BLOCKED");
             return chargerRepository.save(charger);
         }
@@ -124,24 +124,24 @@ public class ChargerService {
         return chargerRepository.save(charger);
     }
 
-    // --- Citrine API CALLS ---
+    // --- CSMS calls (provider-agnostic; provider-specific logic lives behind ChargingControlService) ---
 
-    private boolean blockInCitrine(Long id, String userId, String sessionId, Integer durationMinutes) {
+    private boolean blockInCsms(Long id, String userId, String sessionId, Integer durationMinutes) {
         try {
             chargingControlService.blockCharger(String.valueOf(id), userId, sessionId, durationMinutes);
             return true;
         } catch (Exception e) {
-            System.err.println("Citrine block failed for charger " + id + ": " + e.getMessage());
+            System.err.println("CSMS block failed for charger " + id + ": " + e.getMessage());
             return false;
         }
     }
 
-    public boolean triggerCitrineUnblock(Long id) {
+    public boolean triggerCsmsUnblock(Long id) {
         try {
             chargingControlService.unblockCharger(String.valueOf(id));
             return true;
         } catch (Exception e) {
-            System.err.println("Citrine unblock failed for charger " + id + ": " + e.getMessage());
+            System.err.println("CSMS unblock failed for charger " + id + ": " + e.getMessage());
             return false;
         }
     }

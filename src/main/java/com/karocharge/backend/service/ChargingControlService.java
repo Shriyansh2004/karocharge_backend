@@ -1,8 +1,8 @@
 package com.karocharge.backend.service;
 
 import com.karocharge.backend.exception.CitrineIntegrationException;
-import com.karocharge.backend.integration.ChargingProviderGateway;
-import com.karocharge.integration.citrine.CitrineConfig;
+import com.karocharge.backend.integration.csms.CsmsProviderSelector;
+import com.karocharge.backend.integration.csms.ports.CsmsChargingPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,19 +11,15 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChargingControlService {
 
-    private static final Pattern TXN_PATTERN = Pattern.compile("\"transactionId\"\\s*:\\s*\"([^\"]+)\"");
     private static final Map<String, BlockReservationContext> ACTIVE_RESERVATIONS = new ConcurrentHashMap<>();
 
-    private final ChargingProviderGateway chargingProviderGateway;
-    private final CitrineConfig citrineConfig;
+    private final CsmsProviderSelector csmsProviderSelector;
 
     public void blockCharger(String chargerId) {
         blockCharger(chargerId, "anonymous-user", "session-" + chargerId + "-" + System.currentTimeMillis(), 30);
@@ -48,19 +44,20 @@ public class ChargingControlService {
         Integer remoteStartId = Math.abs((chargerId + userId).hashCode());
 
         try {
-            String response = chargingProviderGateway.requestStartTransaction(
+            CsmsChargingPort charging = csmsProviderSelector.current().charging();
+            var response = charging.startCharging(
                     chargerId,
                     remoteStartId,
                     userId,
-                    citrineConfig.getDefaultEvseId()
+                    charging.defaultEvseId()
             );
-            String transactionId = extractTransactionId(response);
+            String transactionId = response.transactionId();
             if (transactionId == null || transactionId.isBlank()) {
                 transactionId = generateFallbackTransactionId(chargerId);
             }
             log.info("event=CHARGING_CONTROL_SUCCESS action=START chargerId={} userId={} transactionId={}",
                     chargerId, userId, transactionId);
-            return new StartChargingResult(transactionId, LocalDateTime.now(), response);
+            return new StartChargingResult(transactionId, LocalDateTime.now(), response.rawResponse());
         } catch (Exception ex) {
             log.error("event=CHARGING_CONTROL_FAILED action=START chargerId={} userId={} message={}",
                     chargerId, userId, ex.getMessage(), ex);
@@ -70,7 +67,7 @@ public class ChargingControlService {
 
     public void stopCharging(String chargerId, String transactionId) {
         try {
-            chargingProviderGateway.requestStopTransaction(chargerId, transactionId);
+            csmsProviderSelector.current().charging().stopCharging(chargerId, transactionId);
             log.info("event=CHARGING_CONTROL_SUCCESS action=STOP chargerId={} transactionId={}", chargerId, transactionId);
         } catch (Exception ex) {
             log.error("event=CHARGING_CONTROL_FAILED action=STOP chargerId={} transactionId={} message={}",
@@ -81,8 +78,8 @@ public class ChargingControlService {
 
     private void executeBlock(String chargerId, String userId, String sessionId) {
         try {
-            String response = chargingProviderGateway.blockCharger(chargerId, citrineConfig.getDefaultEvseId());
-            ensureChangeAvailabilityAccepted(response, chargerId, "Inoperative");
+            CsmsChargingPort charging = csmsProviderSelector.current().charging();
+            charging.blockCharger(chargerId, charging.defaultEvseId());
             String normalizedChargerId = normalizeChargerId(chargerId);
             ACTIVE_RESERVATIONS.put(normalizedChargerId, new BlockReservationContext(userId, sessionId));
             log.info("event=BLOCK_STATE_SAVED chargerId={} normalizedChargerId={}", chargerId, normalizedChargerId);
@@ -96,8 +93,8 @@ public class ChargingControlService {
 
     private void executeUnblock(String chargerId) {
         try {
-            String response = chargingProviderGateway.unblockCharger(chargerId, citrineConfig.getDefaultEvseId());
-            ensureChangeAvailabilityAccepted(response, chargerId, "Operative");
+            CsmsChargingPort charging = csmsProviderSelector.current().charging();
+            charging.unblockCharger(chargerId, charging.defaultEvseId());
             log.info("event=CHARGING_CONTROL_SUCCESS action=UNBLOCK chargerId={}", chargerId);
         } catch (Exception ex) {
             log.error("event=CHARGING_CONTROL_FAILED action=UNBLOCK chargerId={} message={}",
@@ -121,35 +118,6 @@ public class ChargingControlService {
 
     private String normalizeChargerId(String chargerId) {
         return chargerId == null ? "" : chargerId.trim().toUpperCase();
-    }
-
-    private void ensureChangeAvailabilityAccepted(String response, String chargerId, String operationalStatus) {
-        if (response == null || response.isBlank()) {
-            log.info("event=AVAILABILITY_CONFIRMATION_DEFAULT_SUCCESS chargerId={} operationalStatus={} message=Empty response treated as accepted",
-                    chargerId, operationalStatus);
-            return;
-        }
-        if (response.contains("\"success\":false")
-                || response.contains("\"status\":\"Rejected\"")
-                || response.contains("\"status\":\"Faulted\"")
-                || response.contains("\"status\":\"Unavailable\"")
-                || response.contains("\"status\":\"Occupied\"")) {
-            throw new IllegalStateException("ChangeAvailability(" + operationalStatus + ") not accepted for charger "
-                    + chargerId + ": " + response);
-        }
-    }
-
-    private String extractTransactionId(String response) {
-        if (response == null || response.isBlank()) {
-            return null;
-        }
-
-        Matcher matcher = TXN_PATTERN.matcher(response);
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-        log.warn("event=TRANSACTION_ID_PARSE_FAILED response={}", response);
-        return null;
     }
 
     private String generateFallbackTransactionId(String chargerId) {

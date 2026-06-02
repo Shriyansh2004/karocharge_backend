@@ -1,6 +1,10 @@
 package com.karocharge.backend.exception;
 
-public class CitrineIntegrationException extends RuntimeException {
+/**
+ * Backwards-compatible exception type used by the current API error handler.
+ * Internally, code should prefer {@link CsmsIntegrationException}.
+ */
+public class CitrineIntegrationException extends CsmsIntegrationException {
     public CitrineIntegrationException(String message) {
         super(message);
     }

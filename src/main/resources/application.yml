@@ -1,0 +1,45 @@
+spring:
+  application:
+    name: backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/karocharge
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+server:
+  port: 8091
+
+# Provider-agnostic CSMS selection
+csms:
+  provider: ${CSMS_PROVIDER:default}
+  providers:
+    default:
+      # (Optional) future provider-specific config can live here
+      base-url: ${CSMS_BASE_URL:}
+      websocket-url: ${CSMS_WS_URL:}
+
+# Existing Citrine integration config (kept for backward compatibility; values moved out of .properties)
+citrine:
+  base-url: ${CITRINE_BASE_URL:http://localhost:8080}
+  websocket-url: ${CITRINE_WEBSOCKET_URL:ws://localhost:8081}
+  hasura-url: ${CITRINE_HASURA_URL:http://localhost:8090/v1/graphql}
+  hasura-admin-secret: ${CITRINE_HASURA_ADMIN_SECRET:CitrineOS!}
+  tenant-id: ${CITRINE_TENANT_ID:1}
+  default-evse-id: ${CITRINE_DEFAULT_EVSE_ID:1}
+  timeout-seconds: ${CITRINE_TIMEOUT_SECONDS:15}
+  retry-attempts: ${CITRINE_RETRY_ATTEMPTS:2}
+  retry-backoff-millis: ${CITRINE_RETRY_BACKOFF_MILLIS:300}
+
+logging:
+  level:
+    com.karocharge: INFO
+
+karocharge:
+  cors:
+    allowed-origins: ${KAROCHARGE_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+
+operator:
+  include-unlinked-db-chargers: ${OPERATOR_INCLUDE_UNLINKED_DB_CHARGERS:false}
+

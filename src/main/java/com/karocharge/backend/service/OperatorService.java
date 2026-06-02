@@ -8,16 +8,15 @@ import com.karocharge.backend.dto.operator.OperatorStationChargerDTO;
 import com.karocharge.backend.dto.operator.OperatorStationDTO;
 import com.karocharge.backend.dto.operator.OperatorStationDetailDTO;
 import com.karocharge.backend.exception.CitrineIntegrationException;
+import com.karocharge.backend.integration.csms.CsmsProviderSelector;
+import com.karocharge.backend.integration.csms.ports.CsmsOperatorPort;
+import com.karocharge.backend.integration.csms.ports.model.CsmsChargingStationView;
+import com.karocharge.backend.integration.csms.ports.model.CsmsOperatorChargerView;
+import com.karocharge.backend.integration.csms.ports.model.CsmsOperatorLocationView;
 import com.karocharge.backend.model.Booking;
 import com.karocharge.backend.model.Charger;
 import com.karocharge.backend.repository.BookingRepository;
 import com.karocharge.backend.repository.ChargerRepository;
-import com.karocharge.integration.citrine.CitrineClient;
-import com.karocharge.integration.citrine.CitrineConfig;
-import com.karocharge.integration.citrine.CitrineHasuraClient;
-import com.karocharge.integration.citrine.dto.CitrineChargingStationView;
-import com.karocharge.integration.citrine.dto.CitrineOperatorChargerView;
-import com.karocharge.integration.citrine.dto.CitrineOperatorLocationView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,14 +41,13 @@ public class OperatorService {
     private final ChargerRepository chargerRepository;
     private final BookingRepository bookingRepository;
     private final ChargingControlService chargingControlService;
-    private final CitrineClient citrineClient;
-    private final CitrineHasuraClient citrineHasuraClient;
-    private final CitrineConfig citrineConfig;
+    private final CsmsProviderSelector csmsProviderSelector;
     private final OperatorProperties operatorProperties;
 
     public OperatorConnectionStatusDTO getConnectionStatus() {
-        boolean citrineHttpReachable = citrineClient.isReachable();
-        List<CitrineChargingStationView> citrineStations = citrineHasuraClient.fetchChargingStations();
+        CsmsOperatorPort csms = csmsProviderSelector.current().operator();
+        boolean citrineHttpReachable = csms.isHttpReachable();
+        List<CsmsChargingStationView> citrineStations = csms.fetchChargingStations();
         boolean hasuraReachable = !citrineStations.isEmpty();
         boolean connected = citrineHttpReachable || hasuraReachable;
 
@@ -61,23 +59,24 @@ public class OperatorService {
         return OperatorConnectionStatusDTO.builder()
                 .backendStatus("UP")
                 .citrineStatus(citrineStatus)
-                .citrineBaseUrl(citrineConfig.getBaseUrl())
-                .citrineWebsocketUrl(citrineConfig.getWebsocketUrl())
+                .citrineBaseUrl(csms.baseUrl())
+                .citrineWebsocketUrl(csms.websocketUrl())
                 .message(message)
                 .checkedAtEpochMs(System.currentTimeMillis())
                 .build();
     }
 
     public List<OperatorChargerDTO> listChargers() {
-        Map<String, CitrineChargingStationView> citrineById = citrineHasuraClient.fetchChargingStations().stream()
-                .collect(Collectors.toMap(CitrineChargingStationView::getId, Function.identity(), (a, b) -> a));
+        List<CsmsChargingStationView> stations = csmsProviderSelector.current().operator().fetchChargingStations();
+        Map<String, CsmsChargingStationView> citrineById = stations.stream()
+                .collect(Collectors.toMap(CsmsChargingStationView::getId, Function.identity(), (a, b) -> a));
 
         Set<String> matchedCitrineIds = new HashSet<>();
         List<OperatorChargerDTO> result = new ArrayList<>();
 
         for (Charger charger : chargerRepository.findAll()) {
             String citrineId = resolveCitrineId(charger);
-            CitrineChargingStationView citrine = citrineById.get(citrineId);
+            CsmsChargingStationView citrine = citrineById.get(citrineId);
             if (citrine != null) {
                 matchedCitrineIds.add(citrineId);
                 result.add(mergeDbAndCitrine(charger, citrine, citrineId));
@@ -86,7 +85,7 @@ public class OperatorService {
             }
         }
 
-        for (CitrineChargingStationView citrine : citrineById.values()) {
+        for (CsmsChargingStationView citrine : citrineById.values()) {
             if (!matchedCitrineIds.contains(citrine.getId())) {
                 result.add(fromCitrineOnly(citrine));
             }
@@ -96,7 +95,7 @@ public class OperatorService {
     }
 
     public List<OperatorStationDTO> listStations() {
-        List<CitrineOperatorLocationView> locations = citrineHasuraClient.fetchOperatorLocations();
+        List<CsmsOperatorLocationView> locations = csmsProviderSelector.current().operator().fetchOperatorLocations();
         if (!locations.isEmpty()) {
             List<OperatorStationDTO> stations = locations.stream()
                     .map(this::toStationSummary)
@@ -104,10 +103,10 @@ public class OperatorService {
 
             Set<String> assignedChargerIds = locations.stream()
                     .flatMap(loc -> loc.getChargers().stream())
-                    .map(CitrineOperatorChargerView::getId)
+                    .map(CsmsOperatorChargerView::getId)
                     .collect(Collectors.toSet());
 
-            List<CitrineOperatorChargerView> unassigned = citrineHasuraClient.fetchChargingStations().stream()
+            List<CsmsOperatorChargerView> unassigned = csmsProviderSelector.current().operator().fetchChargingStations().stream()
                     .filter(s -> !assignedChargerIds.contains(s.getId()))
                     .map(this::toOperatorChargerFromCitrine)
                     .toList();
@@ -129,7 +128,7 @@ public class OperatorService {
             return Optional.of(buildUnassignedStationDetail());
         }
 
-        Optional<OperatorStationDetailDTO> fromHasura = citrineHasuraClient.fetchOperatorLocations().stream()
+        Optional<OperatorStationDetailDTO> fromHasura = csmsProviderSelector.current().operator().fetchOperatorLocations().stream()
                 .filter(loc -> stationId.equals(loc.getId()))
                 .findFirst()
                 .map(this::toStationDetail);
@@ -220,15 +219,15 @@ public class OperatorService {
             return dbBooking.get().getOcppTransactionId();
         }
 
-        return citrineHasuraClient.fetchChargingStations().stream()
+        return csmsProviderSelector.current().operator().fetchChargingStations().stream()
                 .filter(s -> citrineChargerId.equals(s.getId()))
-                .map(CitrineChargingStationView::getActiveTransactionId)
+                .map(CsmsChargingStationView::getActiveTransactionId)
                 .filter(id -> id != null && !id.isBlank())
                 .findFirst()
                 .orElse(null);
     }
 
-    private OperatorChargerDTO mergeDbAndCitrine(Charger charger, CitrineChargingStationView citrine, String citrineId) {
+    private OperatorChargerDTO mergeDbAndCitrine(Charger charger, CsmsChargingStationView citrine, String citrineId) {
         Optional<Booking> activeBooking = findActiveBooking(charger.getId());
         String bookingStatus = activeBooking.map(Booking::getStatus).orElse(null);
         String transactionId = activeBooking.map(Booking::getOcppTransactionId).orElse(null);
@@ -258,7 +257,7 @@ public class OperatorService {
                 .build();
     }
 
-    private OperatorChargerDTO fromCitrineOnly(CitrineChargingStationView citrine) {
+    private OperatorChargerDTO fromCitrineOnly(CsmsChargingStationView citrine) {
         String status = mapConnectorStatus(citrine.getConnectorStatus());
         if (citrine.getActiveTransactionId() != null && !citrine.getActiveTransactionId().isBlank()) {
             status = "CHARGING";
@@ -282,7 +281,7 @@ public class OperatorService {
                 .build();
     }
 
-    private String deriveStatus(String dbStatus, CitrineChargingStationView citrine) {
+    private String deriveStatus(String dbStatus, CsmsChargingStationView citrine) {
         if (citrine == null) {
             return dbStatus;
         }
@@ -404,7 +403,7 @@ public class OperatorService {
                         ? capitalize(charger.getConnectorStatus() != null ? charger.getConnectorStatus() : "Online")
                         : "Offline";
 
-        String wsBase = citrineConfig.getWebsocketUrl();
+        String wsBase = csmsProviderSelector.current().operator().websocketUrl();
         String chargingUrl = wsBase != null && chargerId != null
                 ? wsBase.replaceAll("/$", "") + "/" + chargerId
                 : "—";
@@ -429,12 +428,12 @@ public class OperatorService {
                 .build();
     }
 
-    private OperatorStationDTO buildUnassignedStationSummary(List<CitrineOperatorChargerView> chargers) {
+    private OperatorStationDTO buildUnassignedStationSummary(List<CsmsOperatorChargerView> chargers) {
         return OperatorStationDTO.builder()
                 .id(0L)
                 .stationName("Unassigned chargers")
                 .chargers(chargers.size())
-                .connectors(chargers.stream().mapToInt(CitrineOperatorChargerView::getConnectorCount).sum())
+                .connectors(chargers.stream().mapToInt(CsmsOperatorChargerView::getConnectorCount).sum())
                 .connectorsSupported(collectConnectorTypes(chargers))
                 .cityDistrict("—")
                 .pincode("—")
@@ -446,12 +445,12 @@ public class OperatorService {
     }
 
     private OperatorStationDetailDTO buildUnassignedStationDetail() {
-        Set<String> assignedChargerIds = citrineHasuraClient.fetchOperatorLocations().stream()
+        Set<String> assignedChargerIds = csmsProviderSelector.current().operator().fetchOperatorLocations().stream()
                 .flatMap(loc -> loc.getChargers().stream())
-                .map(CitrineOperatorChargerView::getId)
+                .map(CsmsOperatorChargerView::getId)
                 .collect(Collectors.toSet());
 
-        List<CitrineOperatorChargerView> unassigned = citrineHasuraClient.fetchChargingStations().stream()
+        List<CsmsOperatorChargerView> unassigned = csmsProviderSelector.current().operator().fetchChargingStations().stream()
                 .filter(s -> !assignedChargerIds.contains(s.getId()))
                 .map(this::toOperatorChargerFromCitrine)
                 .toList();
@@ -472,8 +471,8 @@ public class OperatorService {
                 .build();
     }
 
-    private CitrineOperatorChargerView toOperatorChargerFromCitrine(CitrineChargingStationView citrine) {
-        return CitrineOperatorChargerView.builder()
+    private CsmsOperatorChargerView toOperatorChargerFromCitrine(CsmsChargingStationView citrine) {
+        return CsmsOperatorChargerView.builder()
                 .id(citrine.getId())
                 .ocppConnectionName(citrine.getId())
                 .isOnline(citrine.getIsOnline())
@@ -492,13 +491,13 @@ public class OperatorService {
                 .build();
     }
 
-    private OperatorStationDTO toStationSummary(CitrineOperatorLocationView location) {
-        List<CitrineOperatorChargerView> chargers = location.getChargers();
+    private OperatorStationDTO toStationSummary(CsmsOperatorLocationView location) {
+        List<CsmsOperatorChargerView> chargers = location.getChargers();
         return OperatorStationDTO.builder()
                 .id(location.getId())
                 .stationName(location.getName())
                 .chargers(chargers.size())
-                .connectors(chargers.stream().mapToInt(CitrineOperatorChargerView::getConnectorCount).sum())
+                .connectors(chargers.stream().mapToInt(CsmsOperatorChargerView::getConnectorCount).sum())
                 .connectorsSupported(collectConnectorTypes(chargers))
                 .cityDistrict(nullToDash(location.getCity()))
                 .pincode(nullToDash(location.getPostalCode()))
@@ -509,7 +508,7 @@ public class OperatorService {
                 .build();
     }
 
-    private OperatorStationDetailDTO toStationDetail(CitrineOperatorLocationView location) {
+    private OperatorStationDetailDTO toStationDetail(CsmsOperatorLocationView location) {
         return OperatorStationDetailDTO.builder()
                 .id(location.getId())
                 .stationName(location.getName())
@@ -526,14 +525,14 @@ public class OperatorService {
                 .build();
     }
 
-    private OperatorStationChargerDTO toStationCharger(CitrineOperatorChargerView charger) {
+    private OperatorStationChargerDTO toStationCharger(CsmsOperatorChargerView charger) {
         String chargerId = charger.getId() != null ? charger.getId() : charger.getOcppConnectionName();
         String status = deriveChargerStatus(charger);
         String power = charger.getMaxPowerWatts() != null
                 ? String.format("%.1f kW", charger.getMaxPowerWatts() / 1000.0)
                 : "—";
 
-        String wsBase = citrineConfig.getWebsocketUrl();
+        String wsBase = csmsProviderSelector.current().operator().websocketUrl();
         String chargingUrl = wsBase != null && chargerId != null
                 ? wsBase.replaceAll("/$", "") + "/" + chargerId
                 : "—";
@@ -558,7 +557,7 @@ public class OperatorService {
                 .build();
     }
 
-    private String deriveChargerStatus(CitrineOperatorChargerView charger) {
+    private String deriveChargerStatus(CsmsOperatorChargerView charger) {
         if (Boolean.FALSE.equals(charger.getIsOnline())) {
             return "Offline";
         }
@@ -583,9 +582,9 @@ public class OperatorService {
         };
     }
 
-    private String formatLoadCapacity(List<CitrineOperatorChargerView> chargers) {
+    private String formatLoadCapacity(List<CsmsOperatorChargerView> chargers) {
         int totalWatts = chargers.stream()
-                .map(CitrineOperatorChargerView::getMaxPowerWatts)
+                .map(CsmsOperatorChargerView::getMaxPowerWatts)
                 .filter(w -> w != null && w > 0)
                 .mapToInt(Integer::intValue)
                 .sum();
@@ -595,9 +594,9 @@ public class OperatorService {
         return String.format("%.1f kW", totalWatts / 1000.0);
     }
 
-    private String collectConnectorTypes(List<CitrineOperatorChargerView> chargers) {
+    private String collectConnectorTypes(List<CsmsOperatorChargerView> chargers) {
         Set<String> types = new LinkedHashSet<>();
-        for (CitrineOperatorChargerView charger : chargers) {
+        for (CsmsOperatorChargerView charger : chargers) {
             if (charger.getConnectorsSupported() != null && !charger.getConnectorsSupported().isBlank()) {
                 for (String part : charger.getConnectorsSupported().split(",")) {
                     String trimmed = part.trim();
@@ -610,7 +609,7 @@ public class OperatorService {
         return types.isEmpty() ? "—" : String.join(", ", types);
     }
 
-    private String formatAccessibility(CitrineOperatorLocationView location) {
+    private String formatAccessibility(CsmsOperatorLocationView location) {
         if (location.getParkingType() != null && !location.getParkingType().isBlank()) {
             return location.getParkingType();
         }
@@ -620,7 +619,7 @@ public class OperatorService {
         return "PUBLIC";
     }
 
-    private String buildAddress(CitrineOperatorLocationView location) {
+    private String buildAddress(CsmsOperatorLocationView location) {
         List<String> parts = new ArrayList<>();
         if (location.getAddress() != null && !location.getAddress().isBlank()) {
             parts.add(location.getAddress());
