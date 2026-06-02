@@ -1,6 +1,109 @@
-# Karocharge backend — test APIs, CitrineOS mapping, and VCP behavior
+# Karocharge backend — CSMS-agnostic architecture + test APIs
 
-This document describes how to exercise **block**, **unblock**, **start**, and **stop** from the Karocharge backend, which **CitrineOS HTTP** endpoints the backend calls, and how the **OCPP Virtual Charge Point (VCP)** reacts over the WebSocket.
+This backend is designed to be **CSMS-provider agnostic** (Clean Architecture / Ports & Adapters). You can **replace or add a CSMS** without changing business services or controllers—only by implementing a new provider adapter and updating configuration.
+
+This README covers:
+- the **backend architecture** (where CSMS code lives)
+- **how to add/replace a CSMS**
+- existing **test APIs** and how they map to the current provider (Citrine + VCP simulator behavior)
+
+---
+
+## Backend architecture (CSMS-agnostic)
+
+### Layering (what can depend on what)
+- **Controllers (`com.karocharge.backend.controller`)**: expose REST APIs, no provider logic
+- **Business services (`com.karocharge.backend.service`)**: orchestrate booking/charging/operator flows using CSMS ports
+- **CSMS ports (`com.karocharge.backend.integration.csms.*`)**: provider-neutral interfaces + selector
+- **Provider adapters (`com.karocharge.integration.*`)**: provider-specific HTTP/WS/GraphQL clients, payload mapping, auth
+
+### Provider selection (configuration-driven)
+The active provider is selected by `csms.provider` in `src/main/resources/application.yml`.
+
+```yaml
+csms:
+  provider: ${CSMS_PROVIDER:default}
+```
+
+At runtime:
+- business code calls `CsmsProviderSelector.current()`
+- the selector returns the provider whose `CsmsProvider#providerKey()` matches `csms.provider`
+
+### Ports used by the business layer
+- `CsmsChargingPort`: block/unblock/start/stop
+- `CsmsOperatorPort`: live station/location views + base/ws URLs (operator UI)
+
+### High-level diagram
+```mermaid
+flowchart TD
+  subgraph API[Controllers]
+    OC[OperatorController]
+    BC[Booking/Charger Controllers]
+  end
+
+  subgraph BL[Business Services]
+    CCS[ChargingControlService]
+    OS[OperatorService]
+    CS[ChargerService]
+  end
+
+  subgraph PORTS[CSMS Ports + Selector]
+    SEL[CsmsProviderSelector]
+    CP[CsmsProvider]
+    CH[CsmsChargingPort]
+    OP[CsmsOperatorPort]
+  end
+
+  subgraph ADAPTERS[Provider Adapters]
+    CIT[CitrineCsmsProvider]
+    CIT_CH[CitrineChargingPortAdapter]
+    CIT_OP[CitrineOperatorPortAdapter]
+  end
+
+  OC --> OS
+  BC --> CS
+  OS --> SEL
+  CCS --> SEL
+  CS --> CCS
+
+  SEL --> CP
+  CP --> CH
+  CP --> OP
+
+  CP --> CIT
+  CIT --> CIT_CH
+  CIT --> CIT_OP
+```
+
+---
+
+## How to add/replace a CSMS (block/unblock/start/stop + live status)
+
+The complete, step-by-step guide is in:
+- `CSMS_PROVIDER_GUIDE.md`
+
+### Quick checklist
+1. **Create provider package**
+   - `src/main/java/com/karocharge/integration/<providerKey>/...`
+
+2. **Implement provider facade**
+   - implement `com.karocharge.backend.integration.csms.CsmsProvider`
+   - set `providerKey()` (example: `"vendorx"`)
+
+3. **Implement charging port**
+   - implement `com.karocharge.backend.integration.csms.ports.CsmsChargingPort`
+   - provide: block/unblock/start/stop (and `defaultEvseId()`)
+
+4. **Implement operator monitoring port**
+   - implement `com.karocharge.backend.integration.csms.ports.CsmsOperatorPort`
+   - provide: station/location reads and `websocketUrl()` for operator UI
+
+5. **Configure + switch**
+   - set `CSMS_PROVIDER=<providerKey>` (or set `csms.provider` directly)
+   - add provider-specific env/config (base-url, websocket-url, auth, etc.)
+
+6. **Do not edit business/services/controllers**
+   - `ChargingControlService`, `OperatorService`, controllers and DTOs must remain provider-neutral.
 
 ---
 
